@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"path/filepath"
 	"time"
 
@@ -40,14 +41,14 @@ func (s *Service) Ingest(path, ext string) error {
 		vec := s.E.Embed(ctx, chunk)
 		log.Printf("[INGEST] chunk=%d/%d embed_dims=%d elapsed=%s", i+1, len(chunks), len(vec), time.Since(t0))
 
-		pointID := uint64(i + 1)
+		pointID := rand.Int()
 
 		t0 = time.Now()
 		_, err := s.Q.Client.Upsert(ctx, &qdrant.UpsertPoints{
 			CollectionName: "docs",
 			Points: []*qdrant.PointStruct{
 				{
-					Id:      qdrant.NewIDNum(pointID),
+					Id:      qdrant.NewIDNum(uint64(pointID)),
 					Vectors: qdrant.NewVectors(vec...),
 					Payload: map[string]*qdrant.Value{
 						"text":   qdrant.NewValueString(chunk),
