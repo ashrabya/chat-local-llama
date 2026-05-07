@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LocalAI — RAG Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:         #06050f;
+  --bg2:        #0d0b1e;
+  --bg3:        #13112a;
+  --bg4:        #1a1836;
+  --border:     #2a2650;
+  --border-hi:  #5b4aff;
+
+  --violet:     #7c5cfc;
+  --violet-hi:  #a084ff;
+  --cyan:       #00e5ff;
+  --cyan-dim:   #00b8d4;
+  --pink:       #ff4d9e;
+  --green:      #00ffa3;
+  --amber:      #ffb800;
+
+  --text:       #e8e6ff;
+  --text-mid:   #8b87c0;
+  --text-dim:   #4a4780;
+  --error:      #ff4d6d;
+
+  --glow-v:     rgba(124,92,252,0.18);
+  --glow-c:     rgba(0,229,255,0.12);
+  --glow-p:     rgba(255,77,158,0.12);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow: hidden;
+}
+
+/* ── Noise texture overlay ── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 999;
+  opacity: 0.5;
+}
+
+/* ── Ambient orbs ── */
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+  animation: orbFloat 12s ease-in-out infinite;
+}
+.orb-1 { width: 420px; height: 420px; background: var(--glow-v); top: -120px; left: -80px; animation-delay: 0s; }
+.orb-2 { width: 320px; height: 320px; background: var(--glow-c); bottom: -60px; right: 200px; animation-delay: -4s; }
+.orb-3 { width: 260px; height: 260px; background: var(--glow-p); top: 40%; left: 30%; animation-delay: -8s; }
+
+@keyframes orbFloat {
+  0%, 100% { transform: translate(0,0) scale(1); }
+  33%       { transform: translate(20px,-30px) scale(1.05); }
+  66%       { transform: translate(-15px,20px) scale(0.95); }
+}
+
+/* ── Layout ── */
+.app {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  background: linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--violet), transparent);
+}
+
+/* ── Logo ── */
+.sidebar-header {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.logo-mark {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--violet), var(--cyan));
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 0 20px var(--glow-v), 0 0 40px rgba(124,92,252,0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.logo-mark::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.2), transparent);
+}
+
+.logo-mark svg { position: relative; z-index: 1; }
+
+.logo-text {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--text), var(--violet-hi));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.logo-badges {
+  display: flex;
+  gap: 5px;
+  margin-left: 46px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-family: 'Fira Code', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 99px;
+  border: 1px solid;
+}
+.badge-v { color: var(--violet-hi); border-color: rgba(124,92,252,0.4); background: rgba(124,92,252,0.08); }
+.badge-c { color: var(--cyan);      border-color: rgba(0,229,255,0.4);   background: rgba(0,229,255,0.06); }
+.badge-p { color: var(--pink);      border-color: rgba(255,77,158,0.4);  background: rgba(255,77,158,0.06); }
+
+/* ── Upload zone ── */
+.upload-section {
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-label {
+  font-family: 'Fira Code', monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.section-label::before {
+  content: '';
+  display: inline-block;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+
+.drop-zone {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 18px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  background: rgba(124,92,252,0.02);
+  overflow: hidden;
+}
+
+.drop-zone::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, var(--glow-v), transparent);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--violet);
+  background: rgba(124,92,252,0.06);
+  box-shadow: 0 0 0 3px rgba(124,92,252,0.1), inset 0 0 30px rgba(124,92,252,0.05);
+}
+.drop-zone:hover::before, .drop-zone.dragover::before { opacity: 1; }
+
+.drop-zone input[type="file"] {
+  position: absolute; inset: 0;
+  opacity: 0; cursor: pointer; width: 100%;
+}
+
+.drop-icon-wrap {
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 10px;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+.drop-zone:hover .drop-icon-wrap {
+  border-color: var(--violet);
+  box-shadow: 0 0 16px var(--glow-v);
+}
+
+.drop-text { font-size: 12px; color: var(--text-mid); line-height: 1.6; position: relative; }
+.drop-text strong { color: var(--violet-hi); font-weight: 600; }
+.drop-formats {
+  font-family: 'Fira Code', monospace;
+  font-size: 9.5px;
+  color: var(--text-dim);
+  margin-top: 5px;
+}
+
+/* ── Upload status ── */
+.upload-status { margin-top: 10px; font-family: 'Fira Code', monospace; font-size: 11px; }
+
+.status-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  animation: slideUp 0.2s ease;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.loading { background: var(--amber); animation: pulse 0.7s infinite; box-shadow: 0 0 8px var(--amber); }
+.status-dot.ok  { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.status-dot.err { background: var(--error); box-shadow: 0 0 8px var(--error); }
+.status-text { color: var(--text-mid); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── File list ── */
+.files-section { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.files-section::-webkit-scrollbar { width: 3px; }
+.files-section::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.file-item {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin-bottom: 5px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-mid);
+  animation: slideUp 0.2s ease;
+  transition: border-color 0.2s;
+}
+.file-item:hover { border-color: var(--border-hi); }
+
+.file-ext-badge {
+  font-family: 'Fira Code', monospace;
+  font-size: 8.5px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ext-pdf  { background: rgba(255,77,158,0.15); color: var(--pink); }
+.ext-txt  { background: rgba(0,255,163,0.12);  color: var(--green); }
+.ext-md   { background: rgba(0,229,255,0.12);  color: var(--cyan); }
+.ext-docx { background: rgba(124,92,252,0.15); color: var(--violet-hi); }
+.ext-csv  { background: rgba(255,184,0,0.12);  color: var(--amber); }
+.ext-other{ background: var(--bg4); color: var(--text-dim); }
+
+.file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+/* ── Sidebar footer ── */
+.sidebar-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.model-pill {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 6px 12px;
+  font-family: 'Fira Code', monospace;
+  font-size: 10.5px;
+  color: var(--text-mid);
+}
+.model-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2.5s ease infinite;
+  flex-shrink: 0;
+}
+
+/* ── Main ── */
+.main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  position: relative;
+}
+
+/* ── Top bar ── */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(13,11,30,0.8);
+  backdrop-filter: blur(12px);
+  flex-shrink: 0;
+}
+
+.topbar-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-mid);
+  display: flex; align-items: center; gap: 8px;
+}
+
+.topbar-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2.5s ease infinite;
+}
+
+.topbar-stat {
+  font-family: 'Fira Code', monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex; gap: 16px;
+}
+
+/* ── Messages ── */
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 28px 12px;
+  scroll-behavior: smooth;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.messages::-webkit-scrollbar { width: 4px; }
+.messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Empty state ── */
+.empty-state {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  flex: 1; gap: 20px; padding: 40px; text-align: center;
+  animation: fadeIn 0.5s ease;
+}
+
+.empty-glyph {
+  position: relative;
+  width: 72px; height: 72px;
+}
+.empty-ring {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  position: absolute;
+  animation: ringPulse 3s ease infinite;
+}
+.empty-ring-2 {
+  width: 56px; height: 56px;
+  top: 8px; left: 8px;
+  animation-delay: -1.5s;
+  border-color: var(--violet);
+  opacity: 0.5;
+}
+.empty-icon-inner {
+  position: absolute;
+  inset: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+@keyframes ringPulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.04); }
+}
+
+.empty-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, var(--text) 30%, var(--violet-hi));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.empty-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  max-width: 340px;
+  line-height: 1.8;
+}
+.empty-sub code {
+  font-family: 'Fira Code', monospace;
+  font-size: 11px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--cyan);
+}
+
+.chips {
+  display: flex; flex-wrap: wrap;
+  gap: 8px; justify-content: center;
+  max-width: 500px;
+}
+.chip {
+  padding: 7px 14px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text-mid);
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.chip:hover {
+  border-color: var(--violet);
+  color: var(--violet-hi);
+  background: rgba(124,92,252,0.08);
+  box-shadow: 0 0 12px rgba(124,92,252,0.15);
+  transform: translateY(-1px);
+}
+
+/* ── Message rows ── */
+.msg-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  animation: slideUp 0.22s ease;
+  max-width: 780px;
+}
+.msg-row.user { flex-direction: row-reverse; align-self: flex-end; }
+.msg-row.ai   { align-self: flex-start; }
+
+.avatar {
+  width: 30px; height: 30px;
+  border-radius: 8px;
+  font-family: 'Fira Code', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+}
+.avatar.user {
+  background: linear-gradient(135deg, var(--violet), var(--pink));
+  color: #fff;
+  box-shadow: 0 0 14px rgba(124,92,252,0.4);
+}
+.avatar.ai {
+  background: linear-gradient(135deg, var(--bg3), var(--bg4));
+  border: 1px solid var(--border);
+  color: var(--cyan);
+  box-shadow: 0 0 14px rgba(0,229,255,0.12);
+}
+
+.bubble {
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.7;
+  max-width: 640px;
+  word-break: break-word;
+}
+.bubble.user {
+  background: linear-gradient(135deg, rgba(124,92,252,0.22), rgba(255,77,158,0.1));
+  border: 1px solid rgba(124,92,252,0.3);
+  color: var(--text);
+  border-bottom-right-radius: 4px;
+}
+.bubble.ai {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-bottom-left-radius: 4px;
+}
+.bubble.ai.thinking {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 13px;
+}
+
+.msg-time {
+  font-family: 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  padding: 0 4px;
+}
+.msg-row.user .msg-time { text-align: right; }
+
+/* ── Thinking dots ── */
+.dots { display: flex; gap: 4px; }
+.dots span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--violet);
+  animation: bounce 1.2s ease infinite;
+}
+.dots span:nth-child(1) { animation-delay: 0s; }
+.dots span:nth-child(2) { animation-delay: 0.18s; }
+.dots span:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%            { transform: translateY(-5px); opacity: 1; }
+}
+
+/* ── Input bar ── */
+.input-area {
+  padding: 16px 28px 20px;
+  border-top: 1px solid var(--border);
+  background: rgba(6,5,15,0.85);
+  backdrop-filter: blur(16px);
+  flex-shrink: 0;
+}
+
+.input-wrap {
+  display: flex; align-items: flex-end; gap: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 10px 10px 18px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-wrap:focus-within {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(124,92,252,0.12), 0 0 30px rgba(124,92,252,0.08);
+}
+
+textarea {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  resize: none;
+  color: var(--text);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 24px;
+  max-height: 180px;
+}
+textarea::placeholder { color: var(--text-dim); }
+
+.send-btn {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--violet), var(--cyan-dim));
+  transition: all 0.2s ease;
+  box-shadow: 0 0 16px rgba(124,92,252,0.3);
+}
+.send-btn:hover:not(:disabled) {
+  transform: scale(1.07);
+  box-shadow: 0 0 24px rgba(124,92,252,0.5);
+}
+.send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.input-hint {
+  font-family: 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  margin-top: 8px;
+  letter-spacing: 0.04em;
+}
+
+/* ── Animations ── */
+@keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+@keyframes pulse   { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<div class="app">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-mark">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+            <path d="M3 9l4 4 8-8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="logo-text">LocalAI</span>
+      </div>
+      <div class="logo-badges">
+        <span class="badge badge-v">RAG</span>
+        <span class="badge badge-c">Ollama</span>
+        <span class="badge badge-p">Qdrant</span>
+      </div>
+    </div>
+
+    <div class="upload-section">
+      <div class="section-label">Knowledge Base</div>
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput"
+          accept=".pdf,.txt,.md,.docx,.doc,.csv,.html,.htm,.xml,.json"
+          multiple />
+        <div class="drop-icon-wrap">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M12 15V3M12 3l-4 4M12 3l4 4" stroke="url(#g1)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3 17v1a3 3 0 003 3h12a3 3 0 003-3v-1" stroke="url(#g1)" stroke-width="1.8" stroke-linecap="round"/>
+            <defs>
+              <linearGradient id="g1" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#7c5cfc"/>
+                <stop offset="1" stop-color="#00e5ff"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="drop-text">
+          <strong>Drop files here</strong><br>or click to browse
+          <div class="drop-formats">pdf · txt · md · docx · csv · html · json</div>
+        </div>
+      </div>
+      <div id="uploadStatus"></div>
+    </div>
+
+    <div class="files-section">
+      <div class="section-label">Ingested Documents</div>
+      <div id="fileList"></div>
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="model-pill">
+        <div class="model-dot"></div>
+        llama3 · nomic-embed-text
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title">
+        <div class="topbar-dot"></div>
+        Document Intelligence Chat
+      </div>
+      <div class="topbar-stat">
+        <span id="statDocs">0 docs</span>
+        <span id="statMsgs">0 messages</span>
+      </div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-glyph">
+          <div class="empty-ring"></div>
+          <div class="empty-ring empty-ring-2"></div>
+          <div class="empty-icon-inner">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+              <path d="M12 3C6.48 3 2 6.92 2 11.75c0 2.68 1.37 5.08 3.54 6.72L4.5 21l3.44-1.72A11.1 11.1 0 0012 20.5c5.52 0 10-3.92 10-8.75S17.52 3 12 3z"
+                stroke="url(#gc)" stroke-width="1.5" stroke-linejoin="round"/>
+              <defs>
+                <linearGradient id="gc" x1="2" y1="3" x2="22" y2="21" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#7c5cfc"/>
+                  <stop offset="1" stop-color="#00e5ff"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+        </div>
+        <div class="empty-title">Ask your documents</div>
+        <div class="empty-sub">
+          Upload a <code>PDF</code>, <code>DOCX</code>, <code>TXT</code>, <code>MD</code>, <code>CSV</code> or <code>JSON</code> to the knowledge base, then ask anything. Powered by Ollama running locally.
+        </div>
+        <div class="chips" id="hintChips">
+          <div class="chip" onclick="useHint(this)">Summarize the document</div>
+          <div class="chip" onclick="useHint(this)">What are the key findings?</div>
+          <div class="chip" onclick="useHint(this)">List the main topics</div>
+          <div class="chip" onclick="useHint(this)">Explain the conclusion</div>
+          <div class="chip" onclick="useHint(this)">What data is shown?</div>
+          <div class="chip" onclick="useHint(this)">Who are the key people mentioned?</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrap">
+        <textarea
+          id="msgInput"
+          placeholder="Ask anything about your documents…"
+          rows="1"
+          autofocus
+        ></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send (Enter)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M13.5 8L2.5 2.5l2.5 5.5-2.5 5.5L13.5 8z" fill="#fff" stroke="#fff" stroke-width="0.3" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter to send &nbsp;·&nbsp; Shift+Enter for newline</div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+  const messagesEl   = document.getElementById('messages');
+  const emptyState   = document.getElementById('emptyState');
+  const msgInput     = document.getElementById('msgInput');
+  const sendBtn      = document.getElementById('sendBtn');
+  const fileInput    = document.getElementById('fileInput');
+  const dropZone     = document.getElementById('dropZone');
+  const uploadStatus = document.getElementById('uploadStatus');
+  const fileList     = document.getElementById('fileList');
+  const statDocs     = document.getElementById('statDocs');
+  const statMsgs     = document.getElementById('statMsgs');
+
+  let docCount = 0;
+  let msgCount = 0;
+
+  // ── Auto-resize textarea ──
+  msgInput.addEventListener('input', () => {
+    msgInput.style.height = 'auto';
+    msgInput.style.height = Math.min(msgInput.scrollHeight, 180) + 'px';
+  });
+
+  msgInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // ── Drag & drop ──
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const files = [...e.dataTransfer.files];
+    if (files.length) handleFiles(files);
+  });
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) handleFiles([...fileInput.files]);
+    fileInput.value = '';
+  });
+
+  // ── Upload ──
+  async function handleFiles(files) {
+    for (const file of files) {
+      setStatus('loading', file.name);
+      const form = new FormData();
+      form.append('file', file);
+
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        setStatus('ok', file.name);
+        addFileItem(file.name);
+        docCount++;
+        statDocs.textContent = docCount + (docCount === 1 ? ' doc' : ' docs');
+      } catch (err) {
+        setStatus('err', `${file.name}: ${err.message}`);
+      }
+    }
+  }
+
+  function setStatus(type, text) {
+    uploadStatus.innerHTML = `
+      <div class="status-row">
+        <div class="status-dot ${type}"></div>
+        <span class="status-text">${escapeHtml(text)}</span>
+      </div>`;
+    if (type === 'ok') setTimeout(() => uploadStatus.innerHTML = '', 4500);
+  }
+
+  function extClass(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const map = { pdf:'ext-pdf', txt:'ext-txt', md:'ext-md', docx:'ext-docx', doc:'ext-docx', csv:'ext-csv' };
+    return map[ext] || 'ext-other';
+  }
+
+  function addFileItem(name) {
+    const ext = name.split('.').pop().toUpperCase();
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    div.innerHTML = `
+      <span class="file-ext-badge ${extClass(name)}">${escapeHtml(ext)}</span>
+      <span class="file-name">${escapeHtml(name)}</span>`;
+    fileList.appendChild(div);
+  }
+
+  // ── Hint chips ──
+  function useHint(el) {
+    msgInput.value = el.textContent;
+    msgInput.dispatchEvent(new Event('input'));
+    msgInput.focus();
+  }
+
+  // ── Send ──
+  let isThinking = false;
+
+  async function sendMessage() {
+    const text = msgInput.value.trim();
+    if (!text || isThinking) return;
+
+    isThinking = true;
+    sendBtn.disabled = true;
+
+    if (emptyState) emptyState.style.display = 'none';
+    appendMsg('user', text);
+    msgInput.value = '';
+    msgInput.style.height = 'auto';
+    msgCount++;
+    statMsgs.textContent = msgCount + (msgCount === 1 ? ' message' : ' messages');
+
+    const thinkingId = appendThinking();
+
+    try {
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      removeThinking(thinkingId);
+      appendMsg('ai', data.answer || 'No response.');
+      msgCount++;
+      statMsgs.textContent = msgCount + (msgCount === 1 ? ' message' : ' messages');
+    } catch (err) {
+      removeThinking(thinkingId);
+      appendMsg('ai', '⚠ Error: ' + err.message);
+    } finally {
+      isThinking = false;
+      sendBtn.disabled = false;
+      msgInput.focus();
+    }
+  }
+
+  function appendMsg(role, text) {
+    const row = document.createElement('div');
+    row.className = `msg-row ${role}`;
+    const isAI = role === 'ai';
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    row.innerHTML = `
+      <div class="avatar ${role}">${isAI ? 'AI' : 'ME'}</div>
+      <div>
+        <div class="bubble ${role}">${escapeHtml(text)}</div>
+        <div class="msg-time">${now}</div>
+      </div>`;
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function appendThinking() {
+    const id = 'think-' + Date.now();
+    const row = document.createElement('div');
+    row.className = 'msg-row ai';
+    row.id = id;
+    row.innerHTML = `
+      <div class="avatar ai">AI</div>
+      <div class="bubble ai thinking">
+        <span class="dots"><span></span><span></span><span></span></span>
+        thinking…
+      </div>`;
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return id;
+  }
+
+  function removeThinking(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>');
+  }
+</script>
+</body>
+</html>
