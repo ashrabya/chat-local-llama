@@ -210,6 +210,5 @@ The first request after startup may be slow as Ollama loads the model weights in
 - **[gorilla/mux](https://github.com/gorilla/mux)** — HTTP router
 - **[nguyenthenguyen/docx](https://github.com/nguyenthenguyen/docx)** — DOCX text extraction
 
-</>Markdown
 
-![App Screenshot](screenshots.png)
+![App Screenshot](screenshot.png)
